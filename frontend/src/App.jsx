@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from './supabaseClient'
 import AuthForm from './AuthForm'
-import MePanel from './MePanel'
+import UploadPage from './UploadPage'
 import './App.css'
 
 function App() {
@@ -25,7 +25,7 @@ function App() {
     return <p style={{ textAlign: 'center', marginTop: '4rem' }}>확인 중...</p>
   }
 
-  return session ? <MePanel session={session} /> : <AuthForm />
+  return session ? <UploadPage session={session} /> : <AuthForm />
 }
 
 export default App
