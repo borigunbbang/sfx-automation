@@ -165,4 +165,6 @@
 | U01 | ✅ 완료 — [handoff/U01_summary.md](./handoff/U01_summary.md) |
 | U02 | ✅ 완료(일부 보류) — [handoff/U02_summary.md](./handoff/U02_summary.md) — SMTP/CAPTCHA는 이후 Unit으로 연기 |
 | U03 | ✅ 완료 — [handoff/U03_summary.md](./handoff/U03_summary.md) — `service_role` 키 대신 JWKS로 검증하는 방식으로 변경 |
-| U04~U12 | 아직 시작 안 함 |
+| U04 | ✅ 완료 — [handoff/U04_summary.md](./handoff/U04_summary.md) — 백엔드에 CORS 미들웨어 추가 필요했음(U03 코드 수정) |
+| U05 | ✅ 완료 — [handoff/U05_summary.md](./handoff/U05_summary.md) — Storage 버킷명 `video`(단수), 정책은 대시보드 UI로 생성 |
+| U06~U12 | 아직 시작 안 함 |

@@ -1,0 +1,35 @@
+-- U05: 영상 업로드용 Storage 버킷 + RLS 정책
+--
+-- ⚠️ 이 프로젝트에서는 이 SQL을 그대로 실행할 수 없었다:
+--   `storage.objects`에 대한 policy 생성/변경은 42501(must be owner of table objects)로 거부됨.
+--   Supabase가 SQL 편집기 role(postgres)에게 이 테이블의 소유권을 주지 않기 때문 —
+--   버킷/정책 모두 아래처럼 **Storage 대시보드 UI**에서 만들어야 한다.
+--
+-- 실제로 만든 것 (참고용 기록):
+--   1. Storage → New bucket → name: `video` (버킷 이름 그대로 사용, "videos"로 통일하지 않기로 함)
+--      Public bucket: OFF
+--   2. 그 버킷 → Policies 탭 → New Policy → "For full customization"으로 아래 4개 생성
+--      (Policy definition 칸에 각각 동일한 SQL 조건식 입력)
+--
+--      | Policy name                | Allowed operation |
+--      |-----------------------------|--------------------|
+--      | videos_insert_own_folder    | INSERT             |
+--      | videos_select_own_folder    | SELECT             |
+--      | videos_update_own_folder    | UPDATE (USING+CHECK)|
+--      | videos_delete_own_folder    | DELETE             |
+--
+--      조건식 (백엔드가 저장하는 경로 규칙: video/{user_id}/{project_id}_{파일명}):
+--        bucket_id = 'video' and (storage.foldername(name))[1] = auth.uid()::text
+--
+-- 아래는 SQL로 가능했다면 이렇게 짰을 것이라는 참고 문서일 뿐, 직접 실행하지 말 것.
+
+-- insert into storage.buckets (id, name, public)
+-- values ('video', 'video', false)
+-- on conflict (id) do nothing;
+--
+-- create policy "videos_insert_own_folder" on storage.objects
+--   for insert with check (
+--     bucket_id = 'video'
+--     and (storage.foldername(name))[1] = auth.uid()::text
+--   );
+-- (select/update/delete도 동일 조건)
