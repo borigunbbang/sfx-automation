@@ -163,4 +163,6 @@
 | Unit | 상태 |
 |---|---|
 | U01 | ✅ 완료 — [handoff/U01_summary.md](./handoff/U01_summary.md) |
-| U02~U12 | 아직 시작 안 함 |
+| U02 | ✅ 완료(일부 보류) — [handoff/U02_summary.md](./handoff/U02_summary.md) — SMTP/CAPTCHA는 이후 Unit으로 연기 |
+| U03 | ✅ 완료 — [handoff/U03_summary.md](./handoff/U03_summary.md) — `service_role` 키 대신 JWKS로 검증하는 방식으로 변경 |
+| U04~U12 | 아직 시작 안 함 |
