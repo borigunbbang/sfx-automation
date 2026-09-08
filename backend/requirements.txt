@@ -4,3 +4,12 @@ PyJWT[crypto]==2.10.1
 python-dotenv==1.0.1
 httpx==0.28.1
 python-multipart==0.0.20
+
+# U06: 워커가 기존 src/의 M1~M3 로직(이벤트 감지/참고 이미지 매칭/SFX 선택)을 그대로 재사용하기 위한 의존성
+# (버전은 루트 requirements.txt와 동일하게 맞춤)
+numpy==2.0.2
+pillow==11.3.0
+ImageHash==4.3.2
+ImageIO==2.37.2
+imageio-ffmpeg==0.6.0
+PyYAML==6.0.3

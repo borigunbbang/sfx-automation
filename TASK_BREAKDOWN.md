@@ -167,4 +167,5 @@
 | U03 | ✅ 완료 — [handoff/U03_summary.md](./handoff/U03_summary.md) — `service_role` 키 대신 JWKS로 검증하는 방식으로 변경 |
 | U04 | ✅ 완료 — [handoff/U04_summary.md](./handoff/U04_summary.md) — 백엔드에 CORS 미들웨어 추가 필요했음(U03 코드 수정) |
 | U05 | ✅ 완료 — [handoff/U05_summary.md](./handoff/U05_summary.md) — Storage 버킷명 `video`(단수), 정책은 대시보드 UI로 생성 |
-| U06~U12 | 아직 시작 안 함 |
+| U06 | ✅ 완료 — [handoff/U06_summary.md](./handoff/U06_summary.md) — 워커에서 `service_role` 키 처음 사용, 참고이미지/SFX는 아직 로컬 파일 기반 |
+| U07~U12 | 아직 시작 안 함 |
