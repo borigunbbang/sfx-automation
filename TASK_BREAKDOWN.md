@@ -170,5 +170,6 @@
 | U06 | ✅ 완료 — [handoff/U06_summary.md](./handoff/U06_summary.md) — 워커에서 `service_role` 키 처음 사용, 참고이미지/SFX는 아직 로컬 파일 기반 |
 | U07 | ✅ 완료 — [handoff/U07_summary.md](./handoff/U07_summary.md) — 소유권 없는/존재하지 않는 project는 구분없이 404로 통일 |
 | U08 | ✅ 완료 — [handoff/U08_summary.md](./handoff/U08_summary.md) — mock 없이 실제 U05~U07로 바로 구현, MePanel은 UploadPage로 대체 |
-| U09 | ✅ 완료 — [handoff/U09_summary.md](./handoff/U09_summary.md) — 오디오 미리듣기는 사용자 결정으로 이번엔 생략 |
-| U10~U12 | 아직 시작 안 함 |
+| U09 | ✅ 완료 — [handoff/U09_summary.md](./handoff/U09_summary.md) — 오디오 미리듣기는 이후 사용자 요청으로 다시 추가됨 |
+| U10 | ✅ 완료 — [handoff/U10_summary.md](./handoff/U10_summary.md) — mock(로컬 state)으로 구현, 서버 저장은 U11에서 |
+| U11~U12 | 아직 시작 안 함 |

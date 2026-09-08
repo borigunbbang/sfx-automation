@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from './supabaseClient'
 import { fetchEventSfxAudioUrl, fetchProjectEvents } from './api'
+import CorrectionPanel from './CorrectionPanel'
 
 const VIDEOS_BUCKET = import.meta.env.VITE_SUPABASE_VIDEOS_BUCKET
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
@@ -27,12 +28,18 @@ export default function ResultView({ project, session }) {
   const [events, setEvents] = useState([])
   const [videoUrl, setVideoUrl] = useState(null)
   const [duration, setDuration] = useState(0)
-  const [selectedEvent, setSelectedEvent] = useState(null)
+  const [selectedEventId, setSelectedEventId] = useState(null)
   const [previewLoading, setPreviewLoading] = useState(false)
+  const [newStart, setNewStart] = useState('')
+  const [newEnd, setNewEnd] = useState('')
   const [error, setError] = useState(null)
   const videoRef = useRef(null)
   const audioRef = useRef(null)
   const previewUrlRef = useRef(null) // 직전 object URL — 교체/언마운트 시 해제
+
+  // 선택된 이벤트는 항상 events 배열에서 다시 찾는다 — 그래야 보정(타입 변경 등)이
+  // 바로 반영된다 (별도 복사본을 들고 있으면 수정 후에도 옛날 값을 보여주게 됨).
+  const selectedEvent = events.find((e) => e.id === selectedEventId) ?? null
 
   useEffect(() => {
     let cancelled = false
@@ -67,10 +74,63 @@ export default function ResultView({ project, session }) {
   }, [])
 
   function handleMarkerClick(ev) {
-    setSelectedEvent(ev)
+    setSelectedEventId(ev.id)
     if (videoRef.current) {
       videoRef.current.currentTime = ev.start_ms / 1000
     }
+  }
+
+  // --- U10: 보정 UI (mock — 화면에만 반영, 서버 저장은 U11에서) ---
+
+  function handleChangeType(newType) {
+    if (!selectedEventId || !newType.trim()) return
+    setEvents((prev) =>
+      prev.map((e) => (e.id === selectedEventId ? { ...e, effect_type: newType.trim() } : e)),
+    )
+  }
+
+  function handleReplaceSfx(filename) {
+    if (!selectedEventId) return
+    const trimmed = filename.trim()
+    setEvents((prev) =>
+      prev.map((e) =>
+        e.id === selectedEventId ? { ...e, matched_sfx_path: trimmed ? `eff sample/${trimmed}` : null } : e,
+      ),
+    )
+  }
+
+  function handleDeleteEvent() {
+    if (!selectedEventId) return
+    setEvents((prev) => prev.filter((e) => e.id !== selectedEventId))
+    setSelectedEventId(null)
+  }
+
+  function handleAddEvent(e) {
+    e.preventDefault()
+    const startSec = parseFloat(newStart)
+    const endSec = parseFloat(newEnd)
+    if (Number.isNaN(startSec) || Number.isNaN(endSec) || endSec <= startSec) {
+      setError('시작/종료 시각을 올바르게 입력해주세요 (초 단위, 종료 > 시작).')
+      return
+    }
+
+    const newEvent = {
+      id: `local-${crypto.randomUUID()}`, // 서버에 없는 임시 id (U11에서 저장 시 교체됨)
+      project_id: project.id,
+      start_ms: Math.round(startSec * 1000),
+      end_ms: Math.round(endSec * 1000),
+      effect_type: 'unknown',
+      match_score: null,
+      matched_sfx_path: null,
+      representative_frame_path: null,
+      created_at: new Date().toISOString(),
+    }
+
+    setEvents((prev) => [...prev, newEvent].sort((a, b) => a.start_ms - b.start_ms))
+    setSelectedEventId(newEvent.id)
+    setNewStart('')
+    setNewEnd('')
+    setError(null)
   }
 
   async function handlePreview() {
@@ -79,7 +139,8 @@ export default function ResultView({ project, session }) {
     setPreviewLoading(true)
     setError(null)
     try {
-      const url = await fetchEventSfxAudioUrl(selectedEvent.id, session.access_token)
+      const filename = selectedEvent.matched_sfx_path.split('/').pop()
+      const url = await fetchEventSfxAudioUrl(selectedEvent.id, session.access_token, filename)
       if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current)
       previewUrlRef.current = url
       if (audioRef.current) {
@@ -163,28 +224,45 @@ export default function ResultView({ project, session }) {
       </p>
 
       {selectedEvent && (
-        <div style={{ background: '#8882', padding: '0.75rem', borderRadius: 8 }}>
-          <p>
-            {(selectedEvent.start_ms / 1000).toFixed(2)}s ~ {(selectedEvent.end_ms / 1000).toFixed(2)}s
-            &nbsp;— 효과 타입: <strong>{selectedEvent.effect_type}</strong>
-          </p>
-          <p>
-            매칭된 효과음:{' '}
-            {selectedEvent.matched_sfx_path
-              ? selectedEvent.matched_sfx_path.split('/').pop()
-              : '없음 (미분류)'}
-          </p>
-          <button
-            type="button"
-            onClick={handlePreview}
-            disabled={!selectedEvent.matched_sfx_path || previewLoading}
-          >
-            {previewLoading ? '불러오는 중...' : '미리듣기'}
-          </button>
-        </div>
+        <CorrectionPanel
+          key={selectedEvent.id} // 이벤트를 바꿔 선택하면 입력 필드를 새 값으로 리셋
+          event={selectedEvent}
+          onChangeType={handleChangeType}
+          onReplaceSfx={handleReplaceSfx}
+          onDelete={handleDeleteEvent}
+          onPreview={handlePreview}
+          previewLoading={previewLoading}
+        />
       )}
 
       <audio ref={audioRef} hidden />
+
+      <form
+        onSubmit={handleAddEvent}
+        style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-end', marginTop: '1rem' }}
+      >
+        <label>
+          시작(초)
+          <input
+            type="number"
+            step="0.01"
+            value={newStart}
+            onChange={(e) => setNewStart(e.target.value)}
+            style={{ width: 90, padding: '0.4rem', display: 'block' }}
+          />
+        </label>
+        <label>
+          종료(초)
+          <input
+            type="number"
+            step="0.01"
+            value={newEnd}
+            onChange={(e) => setNewEnd(e.target.value)}
+            style={{ width: 90, padding: '0.4rem', display: 'block' }}
+          />
+        </label>
+        <button type="submit">이벤트 추가</button>
+      </form>
 
       <button type="button" onClick={handleDownloadCsv} style={{ marginTop: '1rem' }}>
         CSV 다운로드

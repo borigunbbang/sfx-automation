@@ -26,6 +26,7 @@ import csv
 import io
 import os
 import uuid
+from typing import Optional
 
 from fastapi import Depends, FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -192,8 +193,15 @@ async def export_project_csv(project_id: str, user: AuthedUser = Depends(get_cur
     )
 
 
+_SFX_LIBRARY_DIR = os.path.realpath(os.path.join(_ROOT_DIR, "eff sample"))
+
+
 @app.get("/events/{event_id}/sfx-audio")
-async def get_event_sfx_audio(event_id: str, user: AuthedUser = Depends(get_current_user)):
+async def get_event_sfx_audio(
+    event_id: str,
+    filename: Optional[str] = None,
+    user: AuthedUser = Depends(get_current_user),
+):
     """
     U09 오디오 미리듣기용 간이 서빙 엔드포인트.
 
@@ -201,6 +209,12 @@ async def get_event_sfx_audio(event_id: str, user: AuthedUser = Depends(get_curr
     (U06/U09 인계 파일 참고 — SFX 라이브러리를 Storage로 옮기는 건 이후 Unit 과제).
     events는 user_id가 없고 project를 통해서만 소유자가 확인되므로, RLS가 걸린
     사용자 JWT로 조회해서 본인 프로젝트의 이벤트가 아니면 자연히 빈 목록(→404)이 된다.
+
+    U10부터: `filename` 쿼리 파라미터를 주면 DB에 저장된 matched_sfx_path 대신
+    로컬 SFX 라이브러리(`eff sample/`)에서 그 파일명을 바로 찾아 재생한다.
+    보정 UI(U10)에서 "효과음 교체"는 화면(mock)에만 반영되고 서버에는 저장되지
+    않으므로(U11 예정), 교체 직후 미리듣기도 이 파일명 기준으로 동작해야
+    실제로 바뀐 소리를 들을 수 있다. event_id 소유권 확인은 그대로 거친다.
     """
     try:
         rows = await fetch_rows(
@@ -214,7 +228,12 @@ async def get_event_sfx_audio(event_id: str, user: AuthedUser = Depends(get_curr
     if not rows:
         raise HTTPException(status_code=404, detail="이벤트를 찾을 수 없습니다.")
 
-    sfx_path = rows[0].get("matched_sfx_path")
+    if filename:
+        safe_name = os.path.basename(filename)  # 경로 조작 방지 (../ 등 제거)
+        sfx_path = os.path.join(_SFX_LIBRARY_DIR, safe_name)
+    else:
+        sfx_path = rows[0].get("matched_sfx_path")
+
     if not sfx_path:
         raise HTTPException(status_code=404, detail="매칭된 효과음이 없습니다.")
 

@@ -58,12 +58,17 @@ export async function fetchProjectEvents(projectId, accessToken) {
 }
 
 /**
- * U09(재추가): 매칭된 효과음 미리듣기.
+ * U09(재추가)/U10: 매칭된 효과음 미리듣기.
  * <audio src>는 커스텀 헤더(Authorization)를 못 보내서, fetch로 인증된 요청을 보낸 뒤
  * Blob → object URL로 변환해서 재생한다.
+ *
+ * `filename`을 넘기면 DB의 matched_sfx_path 대신 그 파일명으로 미리듣는다 —
+ * U10 보정 UI의 "효과음 교체"는 화면(mock)에만 반영되고 서버에는 저장되지 않으므로,
+ * 교체 직후 바뀐 소리를 들으려면 이 파라미터가 필요하다.
  */
-export async function fetchEventSfxAudioUrl(eventId, accessToken) {
-  const res = await fetch(`${API_BASE_URL}/events/${eventId}/sfx-audio`, {
+export async function fetchEventSfxAudioUrl(eventId, accessToken, filename) {
+  const query = filename ? `?filename=${encodeURIComponent(filename)}` : ''
+  const res = await fetch(`${API_BASE_URL}/events/${eventId}/sfx-audio${query}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   if (!res.ok) {
