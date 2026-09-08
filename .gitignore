@@ -6,6 +6,11 @@ __pycache__/
 # OS
 .DS_Store
 
+# 비밀 키 (Supabase service_role 등) — TECH_SPEC.md 10번 체크리스트 1번
+.env
+.env.*
+!.env.example
+
 # 테스트에 사용한 저작권 있는 미디어/결과물 (공개 저장소에 올리지 않음)
 data/
 eff sample/

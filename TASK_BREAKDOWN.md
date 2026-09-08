@@ -162,4 +162,5 @@
 ## 5. 진행 상태
 | Unit | 상태 |
 |---|---|
-| U01~U12 | 아직 시작 안 함 |
+| U01 | ✅ 완료 — [handoff/U01_summary.md](./handoff/U01_summary.md) |
+| U02~U12 | 아직 시작 안 함 |
