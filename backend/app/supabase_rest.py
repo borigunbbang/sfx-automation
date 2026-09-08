@@ -7,7 +7,7 @@ U01에서 설정한 DB RLS 정책과 U05에서 설정하는 Storage RLS 정책�
 """
 
 import os
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 import httpx
 
@@ -52,3 +52,16 @@ async def insert_row(*, table: str, data: dict, user_token: str) -> dict:
 
     rows = resp.json()
     return rows[0]
+
+
+async def fetch_rows(*, table: str, params: Dict[str, Any], user_token: str) -> List[dict]:
+    """PostgREST GET 요청 (해당 사용자 권한으로) — RLS로 본인 소유 행만 반환된다."""
+    url = f"{SUPABASE_URL}/rest/v1/{table}"
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.get(url, params=params, headers=_headers(user_token))
+
+    if resp.status_code >= 400:
+        raise RuntimeError(f"{table} 조회 실패 ({resp.status_code}): {resp.text}")
+
+    return resp.json()

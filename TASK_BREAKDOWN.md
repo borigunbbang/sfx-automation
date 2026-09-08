@@ -168,4 +168,5 @@
 | U04 | ✅ 완료 — [handoff/U04_summary.md](./handoff/U04_summary.md) — 백엔드에 CORS 미들웨어 추가 필요했음(U03 코드 수정) |
 | U05 | ✅ 완료 — [handoff/U05_summary.md](./handoff/U05_summary.md) — Storage 버킷명 `video`(단수), 정책은 대시보드 UI로 생성 |
 | U06 | ✅ 완료 — [handoff/U06_summary.md](./handoff/U06_summary.md) — 워커에서 `service_role` 키 처음 사용, 참고이미지/SFX는 아직 로컬 파일 기반 |
-| U07~U12 | 아직 시작 안 함 |
+| U07 | ✅ 완료 — [handoff/U07_summary.md](./handoff/U07_summary.md) — 소유권 없는/존재하지 않는 project는 구분없이 404로 통일 |
+| U08~U12 | 아직 시작 안 함 |

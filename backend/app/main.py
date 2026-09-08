@@ -1,30 +1,37 @@
 """
 U03: FastAPI 스캐폴딩 + JWT 인증 미들웨어.
 U05: 영상 업로드 API.
+U07: 결과 조회 API.
 
 실행:
     uvicorn app.main:app --reload --port 8000
 
 확인용 엔드포인트:
-    GET  /                  - 헬스체크 (인증 불필요)
-    GET  /me                - 로그인(유효한 Supabase JWT) 필요. 토큰 없으면 401,
-                              유효하면 200 + 사용자 정보 반환.
-    POST /projects/upload   - 로그인 필요. 영상 파일을 Supabase Storage에 저장하고
-                              projects 테이블에 status=pending 행 생성.
+    GET  /                          - 헬스체크 (인증 불필요)
+    GET  /me                        - 로그인(유효한 Supabase JWT) 필요. 토큰 없으면 401,
+                                       유효하면 200 + 사용자 정보 반환.
+    POST /projects/upload           - 로그인 필요. 영상 파일을 Supabase Storage에 저장하고
+                                       projects 테이블에 status=pending 행 생성.
+    GET  /projects/{id}             - 로그인 필요. project 상태 조회 (본인 소유만, 없으면 404).
+    GET  /projects/{id}/events      - 로그인 필요. 해당 project의 이벤트 목록.
+    GET  /projects/{id}/export.csv  - 로그인 필요. 이벤트를 CSV로 내보내기.
 """
 
 from dotenv import load_dotenv
 
 load_dotenv()  # SUPABASE_URL 등 .env를 app.auth/app.supabase_rest가 import될 때 읽을 수 있도록 먼저 로드
 
+import csv
+import io
 import os
 import uuid
 
 from fastapi import Depends, FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 
 from app.auth import AuthedUser, get_current_user
-from app.supabase_rest import insert_row, upload_object
+from app.supabase_rest import fetch_rows, insert_row, upload_object
 
 app = FastAPI(title="AutoSFX API")
 
@@ -99,3 +106,80 @@ async def upload_project_video(
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     return project
+
+
+async def _get_owned_project(project_id: str, user: AuthedUser) -> dict:
+    """본인 소유 project 1건을 가져온다. RLS 덕분에 다른 사람 project는 그냥 빈 목록으로 와서
+    존재 여부를 굳이 구분하지 않고 404로 통일할 수 있다 (다른 사용자 데이터 존재 유무를 노출하지 않음)."""
+    try:
+        rows = await fetch_rows(
+            table="projects",
+            params={"id": f"eq.{project_id}"},
+            user_token=user.token,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    if not rows:
+        raise HTTPException(status_code=404, detail="프로젝트를 찾을 수 없습니다.")
+    return rows[0]
+
+
+@app.get("/projects/{project_id}")
+async def get_project(project_id: str, user: AuthedUser = Depends(get_current_user)):
+    return await _get_owned_project(project_id, user)
+
+
+@app.get("/projects/{project_id}/events")
+async def get_project_events(project_id: str, user: AuthedUser = Depends(get_current_user)):
+    await _get_owned_project(project_id, user)  # 존재/소유 확인 (없으면 404)
+
+    try:
+        events = await fetch_rows(
+            table="events",
+            params={"project_id": f"eq.{project_id}", "order": "start_ms.asc"},
+            user_token=user.token,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return events
+
+
+@app.get("/projects/{project_id}/export.csv")
+async def export_project_csv(project_id: str, user: AuthedUser = Depends(get_current_user)):
+    """
+    이벤트를 CSV로 내보낸다 (TECH_SPEC.md 4.6).
+    컬럼: timestamp_sec, end_sec, effect_type, sfx_filename
+    (REAPER 마커/리전 임포트과의 정확한 컬럼 호환은 M9 확장 단계에서 다시 다룰 예정 —
+     지금은 "타임코드 + 효과 타입 + 파일명" 정보를 담는 표 형태만 우선 제공)
+    """
+    await _get_owned_project(project_id, user)
+
+    try:
+        events = await fetch_rows(
+            table="events",
+            params={"project_id": f"eq.{project_id}", "order": "start_ms.asc"},
+            user_token=user.token,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["timestamp_sec", "end_sec", "effect_type", "sfx_filename"])
+    for ev in events:
+        sfx_path = ev.get("matched_sfx_path")
+        writer.writerow([
+            round(ev["start_ms"] / 1000, 2),
+            round(ev["end_ms"] / 1000, 2),
+            ev["effect_type"],
+            os.path.basename(sfx_path) if sfx_path else "",
+        ])
+    buf.seek(0)
+
+    return StreamingResponse(
+        buf,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="project_{project_id}_events.csv"'},
+    )
