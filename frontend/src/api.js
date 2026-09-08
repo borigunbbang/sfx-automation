@@ -46,3 +46,13 @@ export async function fetchProject(projectId, accessToken) {
   })
   return parseJsonOrThrow(res, 'GET /projects/{id}')
 }
+
+/**
+ * U07의 GET /projects/{id}/events로 이벤트 목록(타임라인 마커용)을 가져온다.
+ */
+export async function fetchProjectEvents(projectId, accessToken) {
+  const res = await fetch(`${API_BASE_URL}/projects/${projectId}/events`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  return parseJsonOrThrow(res, 'GET /projects/{id}/events')
+}

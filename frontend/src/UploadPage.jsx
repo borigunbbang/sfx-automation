@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from './supabaseClient'
 import { fetchProject, uploadProjectVideo } from './api'
+import ResultView from './ResultView'
 
 const STATUS_LABEL = {
   pending: '대기중',
@@ -64,7 +65,7 @@ export default function UploadPage({ session }) {
   }
 
   return (
-    <div style={{ maxWidth: 480, margin: '4rem auto', textAlign: 'left' }}>
+    <div style={{ maxWidth: 720, margin: '4rem auto', textAlign: 'left' }}>
       <h2>영상 업로드</h2>
       <p style={{ opacity: 0.7 }}>{session.user.email}</p>
 
@@ -88,9 +89,12 @@ export default function UploadPage({ session }) {
             상태: <strong>{STATUS_LABEL[project.status] ?? project.status}</strong>
             {(project.status === 'pending' || project.status === 'processing') && ' (자동으로 갱신됩니다...)'}
           </p>
-          <pre style={{ background: '#1115', padding: '1rem', borderRadius: 8, overflowX: 'auto' }}>
-            {JSON.stringify(project, null, 2)}
-          </pre>
+
+          {project.status === 'done' && <ResultView project={project} session={session} />}
+
+          {project.status === 'failed' && (
+            <p style={{ color: 'crimson' }}>처리 중 오류가 발생했습니다. 다시 업로드해보세요.</p>
+          )}
         </div>
       )}
 
