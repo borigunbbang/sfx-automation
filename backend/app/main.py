@@ -15,6 +15,7 @@ U07: 결과 조회 API.
     GET  /projects/{id}             - 로그인 필요. project 상태 조회 (본인 소유만, 없으면 404).
     GET  /projects/{id}/events      - 로그인 필요. 해당 project의 이벤트 목록.
     GET  /projects/{id}/export.csv  - 로그인 필요. 이벤트를 CSV로 내보내기.
+    GET  /events/{id}/sfx-audio     - 로그인 필요. 매칭된 효과음 파일 스트리밍 (U09 미리듣기용).
 """
 
 from dotenv import load_dotenv
@@ -28,7 +29,7 @@ import uuid
 
 from fastapi import Depends, FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 from app.auth import AuthedUser, get_current_user
 from app.supabase_rest import fetch_rows, insert_row, upload_object
@@ -36,6 +37,12 @@ from app.supabase_rest import fetch_rows, insert_row, upload_object
 app = FastAPI(title="AutoSFX API")
 
 VIDEOS_BUCKET = os.environ.get("SUPABASE_VIDEOS_BUCKET", "videos")
+
+# U09: 매칭된 효과음(matched_sfx_path)이 아직 Storage가 아니라 로컬 파일 경로라서(U06 이슈),
+# 이 루트 밖의 경로는 절대 서빙하지 않도록 제한한다 (임의 파일 읽기 방지용 안전장치).
+# 워커(worker.py)와 동일하게 backend/의 부모 디렉터리(sfx-automation/)를 루트로 잡는다.
+_ROOT_DIR = os.path.realpath(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+_SFX_MEDIA_TYPES = {".wav": "audio/wav", ".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".aiff": "audio/aiff"}
 
 # 프론트엔드(U04, Vite 개발 서버)에서 브라우저 fetch로 호출할 수 있도록 CORS 허용.
 # 콤마로 여러 origin을 지정할 수 있게 하고, 기본값은 로컬 Vite 개발 서버.
@@ -183,3 +190,40 @@ async def export_project_csv(project_id: str, user: AuthedUser = Depends(get_cur
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="project_{project_id}_events.csv"'},
     )
+
+
+@app.get("/events/{event_id}/sfx-audio")
+async def get_event_sfx_audio(event_id: str, user: AuthedUser = Depends(get_current_user)):
+    """
+    U09 오디오 미리듣기용 간이 서빙 엔드포인트.
+
+    matched_sfx_path는 아직 Storage가 아니라 워커가 도는 서버의 로컬 파일 경로다
+    (U06/U09 인계 파일 참고 — SFX 라이브러리를 Storage로 옮기는 건 이후 Unit 과제).
+    events는 user_id가 없고 project를 통해서만 소유자가 확인되므로, RLS가 걸린
+    사용자 JWT로 조회해서 본인 프로젝트의 이벤트가 아니면 자연히 빈 목록(→404)이 된다.
+    """
+    try:
+        rows = await fetch_rows(
+            table="events",
+            params={"id": f"eq.{event_id}"},
+            user_token=user.token,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    if not rows:
+        raise HTTPException(status_code=404, detail="이벤트를 찾을 수 없습니다.")
+
+    sfx_path = rows[0].get("matched_sfx_path")
+    if not sfx_path:
+        raise HTTPException(status_code=404, detail="매칭된 효과음이 없습니다.")
+
+    real_path = os.path.realpath(sfx_path)
+    if not (real_path == _ROOT_DIR or real_path.startswith(_ROOT_DIR + os.sep)):
+        raise HTTPException(status_code=403, detail="허용되지 않은 경로입니다.")
+    if not os.path.isfile(real_path):
+        raise HTTPException(status_code=404, detail="효과음 파일을 찾을 수 없습니다.")
+
+    ext = os.path.splitext(real_path)[1].lower()
+    media_type = _SFX_MEDIA_TYPES.get(ext, "application/octet-stream")
+    return FileResponse(real_path, media_type=media_type)

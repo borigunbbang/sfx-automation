@@ -56,3 +56,20 @@ export async function fetchProjectEvents(projectId, accessToken) {
   })
   return parseJsonOrThrow(res, 'GET /projects/{id}/events')
 }
+
+/**
+ * U09(재추가): 매칭된 효과음 미리듣기.
+ * <audio src>는 커스텀 헤더(Authorization)를 못 보내서, fetch로 인증된 요청을 보낸 뒤
+ * Blob → object URL로 변환해서 재생한다.
+ */
+export async function fetchEventSfxAudioUrl(eventId, accessToken) {
+  const res = await fetch(`${API_BASE_URL}/events/${eventId}/sfx-audio`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => null)
+    throw new Error(`효과음 불러오기 실패 (${res.status}): ${body?.detail ?? res.statusText}`)
+  }
+  const blob = await res.blob()
+  return URL.createObjectURL(blob)
+}

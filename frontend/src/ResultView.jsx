@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from './supabaseClient'
-import { fetchProjectEvents } from './api'
+import { fetchEventSfxAudioUrl, fetchProjectEvents } from './api'
 
 const VIDEOS_BUCKET = import.meta.env.VITE_SUPABASE_VIDEOS_BUCKET
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
@@ -19,17 +19,20 @@ function videoPathToStoragePath(videoPath) {
  * U09: 결과 확인 화면.
  * 영상 재생 + 타임라인 마커(U07의 이벤트 목록) — 마커 클릭 시 해당 시점으로 이동하고 상세 정보를 보여준다.
  *
- * 오디오 미리듣기는 이번 Unit에서는 생략한다 (사용자 결정) — matched_sfx_path가 아직
- * 로컬 파일 경로라 브라우저가 접근할 수 없기 때문. SFX를 Storage로 옮기는 작업은
- * 별도 Unit에서 다룰 예정 (handoff/U06_summary.md 참고).
+ * 오디오 미리듣기: matched_sfx_path가 아직 Storage가 아니라 로컬 파일 경로라(U06 이슈),
+ * 백엔드의 간이 서빙 엔드포인트(GET /events/{id}/sfx-audio)로 받아 재생한다.
+ * <audio src>는 Authorization 헤더를 못 보내므로, fetch로 인증된 요청 → Blob → object URL로 변환.
  */
 export default function ResultView({ project, session }) {
   const [events, setEvents] = useState([])
   const [videoUrl, setVideoUrl] = useState(null)
   const [duration, setDuration] = useState(0)
   const [selectedEvent, setSelectedEvent] = useState(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
   const [error, setError] = useState(null)
   const videoRef = useRef(null)
+  const audioRef = useRef(null)
+  const previewUrlRef = useRef(null) // 직전 object URL — 교체/언마운트 시 해제
 
   useEffect(() => {
     let cancelled = false
@@ -57,10 +60,36 @@ export default function ResultView({ project, session }) {
     }
   }, [project.id, project.video_path, session.access_token])
 
+  useEffect(() => {
+    return () => {
+      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current)
+    }
+  }, [])
+
   function handleMarkerClick(ev) {
     setSelectedEvent(ev)
     if (videoRef.current) {
       videoRef.current.currentTime = ev.start_ms / 1000
+    }
+  }
+
+  async function handlePreview() {
+    if (!selectedEvent?.matched_sfx_path) return
+
+    setPreviewLoading(true)
+    setError(null)
+    try {
+      const url = await fetchEventSfxAudioUrl(selectedEvent.id, session.access_token)
+      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current)
+      previewUrlRef.current = url
+      if (audioRef.current) {
+        audioRef.current.src = url
+        await audioRef.current.play()
+      }
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setPreviewLoading(false)
     }
   }
 
@@ -145,11 +174,17 @@ export default function ResultView({ project, session }) {
               ? selectedEvent.matched_sfx_path.split('/').pop()
               : '없음 (미분류)'}
           </p>
-          <button type="button" disabled title="SFX를 Storage로 옮기는 작업은 이후 Unit에서 진행 예정">
-            미리듣기 (준비 중)
+          <button
+            type="button"
+            onClick={handlePreview}
+            disabled={!selectedEvent.matched_sfx_path || previewLoading}
+          >
+            {previewLoading ? '불러오는 중...' : '미리듣기'}
           </button>
         </div>
       )}
+
+      <audio ref={audioRef} hidden />
 
       <button type="button" onClick={handleDownloadCsv} style={{ marginTop: '1rem' }}>
         CSV 다운로드
