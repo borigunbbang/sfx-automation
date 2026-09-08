@@ -1,0 +1,16 @@
+# Python 가상환경 / 캐시
+.venv/
+__pycache__/
+*.pyc
+
+# OS
+.DS_Store
+
+# 테스트에 사용한 저작권 있는 미디어/결과물 (공개 저장소에 올리지 않음)
+data/
+eff sample/
+references/*.png
+references/*.jpg
+
+# 위 폴더 구조 자체는 유지하고 싶을 때를 위한 예외 (필요시 주석 해제)
+# !data/.gitkeep

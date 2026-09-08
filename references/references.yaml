@@ -1,0 +1,15 @@
+# M2: 참고 이미지 등록 (TECH_SPEC.md 3.3)
+# 자막 스타일별로, "다 나타난 직후 정지 상태" 캡처 이미지를 효과음 폴더와 짝지어 등록한다.
+# MVP는 1개 타입으로 테스트한다 (PRD.md 9번 Open Question 결정 사항).
+
+references:
+  - id: caption_style_01
+    image: ./caption_style_01_crop.png
+    full_frame_reference: ./caption_style_01_full.png  # 참고용 원본 전체 프레임 (매칭에는 crop 사용)
+    source_video: "/Users/mac/Downloads/효과 사이트 구축용 샘플 영상.mp4"
+    source_timestamp_sec: 216.10
+    effect_type: caption_style_01
+    sfx_folder: "../eff sample"
+    notes: >
+      주황/흰색 굵은 테두리 글씨, 화면 하단에 등장하는 캡션 스타일.
+      (사용자 확인: ev025 시점, 216초 부근. "같은 사람 다른 느낌" 문구)
