@@ -173,4 +173,4 @@
 | U09 | ✅ 완료 — [handoff/U09_summary.md](./handoff/U09_summary.md) — 오디오 미리듣기는 이후 사용자 요청으로 다시 추가됨 |
 | U10 | ✅ 완료 — [handoff/U10_summary.md](./handoff/U10_summary.md) — mock(로컬 state)으로 구현, 서버 저장은 U11에서 |
 | U11 | ✅ 완료 — [handoff/U11_summary.md](./handoff/U11_summary.md) — 이벤트 추가는 local-id 방식 대신 즉시 POST로 설계 변경, CSV 재생성은 기존 export 엔드포인트가 그대로 커버 |
-| U12 | 아직 시작 안 함 |
+| U12 | ✅ 완료 — [handoff/U12_summary.md](./handoff/U12_summary.md) — 체크리스트 점검 도중 실제 배포(Vercel+Render)까지 진행, 효과음 라이브러리를 Storage로 이전 |
