@@ -170,7 +170,13 @@ def main():
         while True:
             project = fetch_next_pending_project(client)
             if project:
-                process_project(client, project)
+                try:
+                    process_project(client, project)
+                except Exception as exc:
+                    # U12: 프로젝트 하나가 깨진 영상 등으로 실패해도(status는 이미 "failed"로
+                    # 기록됨) 워커 전체가 죽어서 이후 pending 프로젝트를 영영 못 받는 일이
+                    # 없도록, 여기서 잡고 계속 폴링한다. run_once(테스트용)는 기존처럼 종료.
+                    print(f"[worker] 처리 실패(계속 진행): project={project['id']} ({exc})")
                 if run_once:
                     return
             else:
