@@ -22,6 +22,7 @@ import os
 import sys
 import tempfile
 import time
+import unicodedata
 
 import httpx
 import numpy as np
@@ -135,6 +136,12 @@ def process_project(client: httpx.Client, project: dict):
             img = Image.fromarray(frame)
             effect_type, dist, matched_ref = classify_frame(img, references)
             sfx_path = picker.pick(matched_ref.sfx_folder) if matched_ref else None
+            # U12: matched_sfx_path에는 이 워커가 도는 컴퓨터에서만 의미 있는 로컬 절대
+            # 경로 대신 원본 파일명만 저장한다 — 백엔드(Render)는 이 파일명으로 효과음
+            # 라이브러리 Storage 버킷(backend/scripts/sync_sfx_library.py가 채움)을 찾는다.
+            # NFC 정규화: macOS os.listdir()은 한글 파일명을 NFD로 돌려주는데, Storage
+            # 매니페스트/프론트는 NFC를 기준으로 삼는다(sync_sfx_library.py 참고).
+            sfx_filename = unicodedata.normalize("NFC", os.path.basename(sfx_path)) if sfx_path else None
 
             insert_event(client, {
                 "project_id": project_id,
@@ -142,7 +149,7 @@ def process_project(client: httpx.Client, project: dict):
                 "end_ms": int(ev.end_time * 1000),
                 "effect_type": effect_type,
                 "match_score": float(dist) if dist is not None else None,
-                "matched_sfx_path": sfx_path,
+                "matched_sfx_path": sfx_filename,
             })
         reader.close()
 

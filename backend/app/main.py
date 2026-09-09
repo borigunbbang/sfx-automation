@@ -28,27 +28,46 @@ load_dotenv()  # SUPABASE_URL 등 .env를 app.auth/app.supabase_rest가 import�
 import csv
 import io
 import os
+import unicodedata
 import uuid
 from typing import Optional
 
 from fastapi import Depends, FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
 from app.auth import AuthedUser, get_current_user
-from app.supabase_rest import delete_rows, fetch_rows, insert_row, update_rows, upload_object
+from app.supabase_rest import (
+    delete_rows,
+    fetch_rows,
+    fetch_sfx_object,
+    insert_row,
+    list_sfx_filenames,
+    update_rows,
+    upload_object,
+)
 
 app = FastAPI(title="AutoSFX API")
 
 VIDEOS_BUCKET = os.environ.get("SUPABASE_VIDEOS_BUCKET", "videos")
 
-# U09: 매칭된 효과음(matched_sfx_path)이 아직 Storage가 아니라 로컬 파일 경로라서(U06 이슈),
-# 이 루트 밖의 경로는 절대 서빙하지 않도록 제한한다 (임의 파일 읽기 방지용 안전장치).
-# 워커(worker.py)와 동일하게 backend/의 부모 디렉터리(sfx-automation/)를 루트로 잡는다.
-_ROOT_DIR = os.path.realpath(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 _SFX_MEDIA_TYPES = {".wav": "audio/wav", ".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".aiff": "audio/aiff"}
-_SFX_LIBRARY_DIR = os.path.realpath(os.path.join(_ROOT_DIR, "eff sample"))
+
+# U12: 효과음 라이브러리 파일명 목록을 매 요청마다 Storage에서 다시 읽지 않도록 캐시한다.
+# (라이브러리는 사람이 backend/scripts/sync_sfx_library.py를 실행할 때만 바뀌는 고정 자산이라
+#  캐시 미스가 나면 1회 새로고침하는 정도로 충분하다.)
+_sfx_filenames_cache: Optional[set] = None
+
+
+async def _sfx_library_filenames(*, refresh: bool = False) -> set:
+    global _sfx_filenames_cache
+    if _sfx_filenames_cache is None or refresh:
+        try:
+            _sfx_filenames_cache = set(await list_sfx_filenames())
+        except RuntimeError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return _sfx_filenames_cache
 
 # 프론트엔드(U04, Vite 개발 서버)에서 브라우저 fetch로 호출할 수 있도록 CORS 허용.
 # 콤마로 여러 origin을 지정할 수 있게 하고, 기본값은 로컬 Vite 개발 서버.
@@ -159,15 +178,20 @@ async def get_project_events(project_id: str, user: AuthedUser = Depends(get_cur
     return events
 
 
-def _resolve_sfx_filename(filename: str) -> str:
-    """U11: 효과음 파일명(예: 'iam 컷인 07.wav')을 로컬 SFX 라이브러리(eff sample/) 안의
-    실제 절대 경로로 바꾼다 — 이게 matched_sfx_path에 저장되어, 워커가 저장하는 값과
-    같은 형식(라이브러리 폴더 하위 절대 경로)을 유지한다. 존재하지 않으면 404."""
-    safe_name = os.path.basename(filename)  # 경로 조작 방지 (../ 등 제거)
-    real_path = os.path.join(_SFX_LIBRARY_DIR, safe_name)
-    if not os.path.isfile(real_path):
+async def _resolve_sfx_filename(filename: str) -> str:
+    """U11/U12: 효과음 파일명(예: 'iam 컷인 07.wav')이 실제로 효과음 라이브러리(Storage)에
+    있는지 확인한다. matched_sfx_path에는 이 원본 파일명 그대로 저장한다(U12부터 —
+    이전에는 워커가 도는 로컬 컴퓨터에서만 의미 있는 절대 경로를 저장했었다).
+    존재하지 않으면 404."""
+    # NFC로 정규화: 라이브러리 매니페스트가 NFC 기준이라(sync_sfx_library.py 참고),
+    # macOS에서 만들어진 값이 섞여 들어와도(NFD) 같은 파일로 인식되게 한다.
+    safe_name = unicodedata.normalize("NFC", os.path.basename(filename))  # 경로 조작 방지 (../ 등 제거)
+    names = await _sfx_library_filenames()
+    if safe_name not in names:
+        names = await _sfx_library_filenames(refresh=True)  # 라이브러리가 방금 갱신됐을 경우 1회 재시도
+    if safe_name not in names:
         raise HTTPException(status_code=404, detail=f"효과음 파일을 찾을 수 없습니다: {safe_name}")
-    return real_path
+    return safe_name
 
 
 class EventCreate(BaseModel):
@@ -234,7 +258,7 @@ async def update_project_event(
     if body.end_ms is not None:
         patch["end_ms"] = body.end_ms
     if body.sfx_filename is not None:
-        patch["matched_sfx_path"] = _resolve_sfx_filename(body.sfx_filename) if body.sfx_filename else None
+        patch["matched_sfx_path"] = await _resolve_sfx_filename(body.sfx_filename) if body.sfx_filename else None
 
     if not patch:
         raise HTTPException(status_code=400, detail="변경할 필드가 없습니다.")
@@ -324,16 +348,16 @@ async def get_event_sfx_audio(
     """
     U09 오디오 미리듣기용 간이 서빙 엔드포인트.
 
-    matched_sfx_path는 아직 Storage가 아니라 워커가 도는 서버의 로컬 파일 경로다
-    (U06/U09 인계 파일 참고 — SFX 라이브러리를 Storage로 옮기는 건 이후 Unit 과제).
+    U12부터: matched_sfx_path는 원본 파일명이고, 실제 오디오 바이트는 Storage의
+    비공개 효과음 라이브러리 버킷에서 service_role 키로 가져온다
+    (app/supabase_rest.py의 fetch_sfx_object, backend/scripts/sync_sfx_library.py 참고).
     events는 user_id가 없고 project를 통해서만 소유자가 확인되므로, RLS가 걸린
     사용자 JWT로 조회해서 본인 프로젝트의 이벤트가 아니면 자연히 빈 목록(→404)이 된다.
 
     U10부터: `filename` 쿼리 파라미터를 주면 DB에 저장된 matched_sfx_path 대신
-    로컬 SFX 라이브러리(`eff sample/`)에서 그 파일명을 바로 찾아 재생한다.
-    보정 UI(U10)에서 "효과음 교체"는 화면(mock)에만 반영되고 서버에는 저장되지
-    않으므로(U11 예정), 교체 직후 미리듣기도 이 파일명 기준으로 동작해야
-    실제로 바뀐 소리를 들을 수 있다. event_id 소유권 확인은 그대로 거친다.
+    그 파일명을 바로 찾아 재생한다 — 보정 UI에서 "효과음 교체" 직후 미리듣기가
+    아직 저장 전인 값 기준으로 동작해야 실제로 바뀐 소리를 들을 수 있어서다.
+    event_id 소유권 확인은 그대로 거친다.
     """
     try:
         rows = await fetch_rows(
@@ -347,21 +371,21 @@ async def get_event_sfx_audio(
     if not rows:
         raise HTTPException(status_code=404, detail="이벤트를 찾을 수 없습니다.")
 
-    if filename:
-        safe_name = os.path.basename(filename)  # 경로 조작 방지 (../ 등 제거)
-        sfx_path = os.path.join(_SFX_LIBRARY_DIR, safe_name)
-    else:
-        sfx_path = rows[0].get("matched_sfx_path")
-
-    if not sfx_path:
+    raw_name = filename or rows[0].get("matched_sfx_path")
+    if not raw_name:
         raise HTTPException(status_code=404, detail="매칭된 효과음이 없습니다.")
+    safe_name = os.path.basename(raw_name)  # 경로 조작 방지 (../ 등 제거)
 
-    real_path = os.path.realpath(sfx_path)
-    if not (real_path == _ROOT_DIR or real_path.startswith(_ROOT_DIR + os.sep)):
-        raise HTTPException(status_code=403, detail="허용되지 않은 경로입니다.")
-    if not os.path.isfile(real_path):
+    try:
+        content = await fetch_sfx_object(safe_name)
+    except FileNotFoundError:
         raise HTTPException(status_code=404, detail="효과음 파일을 찾을 수 없습니다.")
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    ext = os.path.splitext(real_path)[1].lower()
+    ext = os.path.splitext(safe_name)[1].lower()
     media_type = _SFX_MEDIA_TYPES.get(ext, "application/octet-stream")
-    return FileResponse(real_path, media_type=media_type)
+    # U12: 같은 event_id URL이라도 효과음 교체(PATCH) 직후에는 다른 파일을 돌려줘야 하므로,
+    # 브라우저가 이전 응답을 캐시해서 재생하지 않도록 명시적으로 캐시를 막는다
+    # (실제로 로컬 테스트 중 캐시 때문에 교체 전 파일이 재생되는 걸 확인하고 추가함).
+    return Response(content=content, media_type=media_type, headers={"Cache-Control": "no-store"})

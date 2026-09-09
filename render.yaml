@@ -1,6 +1,8 @@
 # U12: Render.com Blueprint — 백엔드 API(FastAPI)만 배포한다.
-# 워커(worker.py)는 참고 이미지/효과음 라이브러리가 로컬 파일 기반이라(U09~U11 미해결 이슈),
+# 워커(worker.py)는 참고 이미지(자막 스타일 매칭용)가 여전히 로컬 파일 기반이라
 # 이 Blueprint에는 포함하지 않고 로컬에서 계속 실행한다 (handoff/U12_summary.md 참고).
+# 효과음 라이브러리는 U12에서 비공개 Storage 버킷으로 옮겨서, 이 API가 배포된 곳이
+# 어디든 미리듣기/효과음 교체 기능이 동작한다 (backend/scripts/sync_sfx_library.py).
 #
 # 사용법: Render 대시보드 → New + → Blueprint → 이 GitHub 저장소 선택 → 이 파일 자동 인식.
 # envVars에 sync: false로 표시된 값은 Blueprint 적용 시 대시보드에서 직접 입력해야 한다.
@@ -22,5 +24,9 @@ services:
         value: authenticated
       - key: SUPABASE_VIDEOS_BUCKET
         value: video
+      - key: SUPABASE_SFX_BUCKET
+        value: sfx-library
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false # U12: 효과음 라이브러리(비공개 버킷) 읽기 전용 용도로 API도 사용
       - key: CORS_ALLOW_ORIGINS
         sync: false # Vercel 배포 URL이 정해진 뒤 채우기 (예: https://autosfx.vercel.app)
