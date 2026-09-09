@@ -4,10 +4,18 @@ import { useState } from 'react'
  * U10: 보정 UI.
  * 선택된 이벤트 하나에 대해 타입 변경 / 효과음 교체 / 삭제를 할 수 있는 패널.
  *
- * Mock 전략(TASK_BREAKDOWN.md 그대로): 여기서 하는 조작은 화면(부모의 로컬 state)에만
- * 반영되고 서버에는 저장되지 않는다 — 실제 저장 API는 U11에서 붙인다.
+ * U11부터: 각 버튼의 조작은 부모(ResultView)가 실제 저장 API(PATCH/DELETE)를 호출하고
+ * 결과가 올 때까지 `saving`이 true가 되어 버튼이 비활성화된다 (중복 클릭/요청 방지).
  */
-export default function CorrectionPanel({ event, onChangeType, onReplaceSfx, onDelete, onPreview, previewLoading }) {
+export default function CorrectionPanel({
+  event,
+  onChangeType,
+  onReplaceSfx,
+  onDelete,
+  onPreview,
+  previewLoading,
+  saving,
+}) {
   const [typeInput, setTypeInput] = useState(event.effect_type)
   const [sfxInput, setSfxInput] = useState(event.matched_sfx_path?.split('/').pop() ?? '')
 
@@ -26,7 +34,7 @@ export default function CorrectionPanel({ event, onChangeType, onReplaceSfx, onD
             style={{ width: '100%', padding: '0.4rem' }}
           />
         </label>
-        <button type="button" onClick={() => onChangeType(typeInput)} style={{ marginTop: '1.2rem' }}>
+        <button type="button" onClick={() => onChangeType(typeInput)} disabled={saving} style={{ marginTop: '1.2rem' }}>
           변경
         </button>
       </div>
@@ -41,7 +49,7 @@ export default function CorrectionPanel({ event, onChangeType, onReplaceSfx, onD
             style={{ width: '100%', padding: '0.4rem' }}
           />
         </label>
-        <button type="button" onClick={() => onReplaceSfx(sfxInput)} style={{ marginTop: '1.2rem' }}>
+        <button type="button" onClick={() => onReplaceSfx(sfxInput)} disabled={saving} style={{ marginTop: '1.2rem' }}>
           교체
         </button>
       </div>
@@ -50,7 +58,7 @@ export default function CorrectionPanel({ event, onChangeType, onReplaceSfx, onD
         <button type="button" onClick={onPreview} disabled={!event.matched_sfx_path || previewLoading}>
           {previewLoading ? '불러오는 중...' : '미리듣기'}
         </button>
-        <button type="button" onClick={onDelete} style={{ color: 'crimson' }}>
+        <button type="button" onClick={onDelete} disabled={saving} style={{ color: 'crimson' }}>
           이벤트 삭제
         </button>
       </div>

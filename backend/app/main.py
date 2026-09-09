@@ -16,6 +16,9 @@ U07: 결과 조회 API.
     GET  /projects/{id}/events      - 로그인 필요. 해당 project의 이벤트 목록.
     GET  /projects/{id}/export.csv  - 로그인 필요. 이벤트를 CSV로 내보내기.
     GET  /events/{id}/sfx-audio     - 로그인 필요. 매칭된 효과음 파일 스트리밍 (U09 미리듣기용).
+    POST /projects/{id}/events           - 로그인 필요. 이벤트 수동 추가 (U10 UI에서 저장).
+    PATCH  /projects/{id}/events/{eid}   - 로그인 필요. 이벤트 보정(타입/효과음/시간) 저장.
+    DELETE /projects/{id}/events/{eid}   - 로그인 필요. 이벤트 삭제.
 """
 
 from dotenv import load_dotenv
@@ -31,9 +34,10 @@ from typing import Optional
 from fastapi import Depends, FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
+from pydantic import BaseModel
 
 from app.auth import AuthedUser, get_current_user
-from app.supabase_rest import fetch_rows, insert_row, upload_object
+from app.supabase_rest import delete_rows, fetch_rows, insert_row, update_rows, upload_object
 
 app = FastAPI(title="AutoSFX API")
 
@@ -44,6 +48,7 @@ VIDEOS_BUCKET = os.environ.get("SUPABASE_VIDEOS_BUCKET", "videos")
 # 워커(worker.py)와 동일하게 backend/의 부모 디렉터리(sfx-automation/)를 루트로 잡는다.
 _ROOT_DIR = os.path.realpath(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 _SFX_MEDIA_TYPES = {".wav": "audio/wav", ".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".aiff": "audio/aiff"}
+_SFX_LIBRARY_DIR = os.path.realpath(os.path.join(_ROOT_DIR, "eff sample"))
 
 # 프론트엔드(U04, Vite 개발 서버)에서 브라우저 fetch로 호출할 수 있도록 CORS 허용.
 # 콤마로 여러 origin을 지정할 수 있게 하고, 기본값은 로컬 Vite 개발 서버.
@@ -154,6 +159,123 @@ async def get_project_events(project_id: str, user: AuthedUser = Depends(get_cur
     return events
 
 
+def _resolve_sfx_filename(filename: str) -> str:
+    """U11: 효과음 파일명(예: 'iam 컷인 07.wav')을 로컬 SFX 라이브러리(eff sample/) 안의
+    실제 절대 경로로 바꾼다 — 이게 matched_sfx_path에 저장되어, 워커가 저장하는 값과
+    같은 형식(라이브러리 폴더 하위 절대 경로)을 유지한다. 존재하지 않으면 404."""
+    safe_name = os.path.basename(filename)  # 경로 조작 방지 (../ 등 제거)
+    real_path = os.path.join(_SFX_LIBRARY_DIR, safe_name)
+    if not os.path.isfile(real_path):
+        raise HTTPException(status_code=404, detail=f"효과음 파일을 찾을 수 없습니다: {safe_name}")
+    return real_path
+
+
+class EventCreate(BaseModel):
+    start_ms: int
+    end_ms: int
+    effect_type: str = "unknown"
+
+
+class EventUpdate(BaseModel):
+    # None(필드 생략)이면 해당 값은 건드리지 않는다.
+    effect_type: Optional[str] = None
+    start_ms: Optional[int] = None
+    end_ms: Optional[int] = None
+    # sfx_filename: 생략(None)이면 매칭된 효과음을 그대로 둔다.
+    # 빈 문자열("")이면 매칭 해제(matched_sfx_path=null). 그 외에는 eff sample/ 안의 파일명이어야 한다.
+    sfx_filename: Optional[str] = None
+
+
+@app.post("/projects/{project_id}/events")
+async def create_project_event(
+    project_id: str,
+    body: EventCreate,
+    user: AuthedUser = Depends(get_current_user),
+):
+    """U10 보정 UI의 '이벤트 수동 추가'를 저장한다. 생성된 행(id 포함)을 그대로 반환하므로,
+    프론트는 이 응답으로 화면의 임시(local-*) id를 실제 서버 id로 교체하면 된다."""
+    await _get_owned_project(project_id, user)  # 존재/소유 확인 (없으면 404)
+
+    if body.end_ms <= body.start_ms:
+        raise HTTPException(status_code=400, detail="end_ms는 start_ms보다 커야 합니다.")
+
+    try:
+        event = await insert_row(
+            table="events",
+            data={
+                "project_id": project_id,
+                "start_ms": body.start_ms,
+                "end_ms": body.end_ms,
+                "effect_type": body.effect_type,
+            },
+            user_token=user.token,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return event
+
+
+@app.patch("/projects/{project_id}/events/{event_id}")
+async def update_project_event(
+    project_id: str,
+    event_id: str,
+    body: EventUpdate,
+    user: AuthedUser = Depends(get_current_user),
+):
+    """U11: 보정(타입 변경/효과음 교체/시간 수정)을 실제로 저장한다."""
+    await _get_owned_project(project_id, user)  # 존재/소유 확인 (없으면 404)
+
+    patch: dict = {}
+    if body.effect_type is not None:
+        patch["effect_type"] = body.effect_type
+    if body.start_ms is not None:
+        patch["start_ms"] = body.start_ms
+    if body.end_ms is not None:
+        patch["end_ms"] = body.end_ms
+    if body.sfx_filename is not None:
+        patch["matched_sfx_path"] = _resolve_sfx_filename(body.sfx_filename) if body.sfx_filename else None
+
+    if not patch:
+        raise HTTPException(status_code=400, detail="변경할 필드가 없습니다.")
+
+    try:
+        rows = await update_rows(
+            table="events",
+            params={"id": f"eq.{event_id}", "project_id": f"eq.{project_id}"},
+            data=patch,
+            user_token=user.token,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    if not rows:
+        raise HTTPException(status_code=404, detail="이벤트를 찾을 수 없습니다.")
+    return rows[0]
+
+
+@app.delete("/projects/{project_id}/events/{event_id}")
+async def delete_project_event(
+    project_id: str,
+    event_id: str,
+    user: AuthedUser = Depends(get_current_user),
+):
+    await _get_owned_project(project_id, user)  # 존재/소유 확인 (없으면 404)
+
+    try:
+        rows = await delete_rows(
+            table="events",
+            params={"id": f"eq.{event_id}", "project_id": f"eq.{project_id}"},
+            user_token=user.token,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    if not rows:
+        raise HTTPException(status_code=404, detail="이벤트를 찾을 수 없습니다.")
+    return {"deleted": True, "id": event_id}
+
+
 @app.get("/projects/{project_id}/export.csv")
 async def export_project_csv(project_id: str, user: AuthedUser = Depends(get_current_user)):
     """
@@ -191,9 +313,6 @@ async def export_project_csv(project_id: str, user: AuthedUser = Depends(get_cur
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="project_{project_id}_events.csv"'},
     )
-
-
-_SFX_LIBRARY_DIR = os.path.realpath(os.path.join(_ROOT_DIR, "eff sample"))
 
 
 @app.get("/events/{event_id}/sfx-audio")

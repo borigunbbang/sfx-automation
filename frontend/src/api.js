@@ -58,6 +58,51 @@ export async function fetchProjectEvents(projectId, accessToken) {
 }
 
 /**
+ * U11: 이벤트 보정(타입 변경/효과음 교체/시간 수정)을 저장한다.
+ * body는 EventUpdate의 부분집합만 보내면 됨 — 예: { effect_type } 또는 { sfx_filename }.
+ * sfx_filename에 빈 문자열을 보내면 매칭 해제(matched_sfx_path=null).
+ * 저장된 이벤트 행(전체 필드)을 그대로 돌려받는다.
+ */
+export async function updateProjectEvent(projectId, eventId, patch, accessToken) {
+  const res = await fetch(`${API_BASE_URL}/projects/${projectId}/events/${eventId}`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(patch),
+  })
+  return parseJsonOrThrow(res, 'PATCH /projects/{id}/events/{eid}')
+}
+
+/**
+ * U11: 이벤트 수동 추가를 저장한다 (U10에서는 화면에만 있던 local-* 이벤트).
+ * 생성된 이벤트 행(실제 서버 id 포함)을 돌려받는다.
+ */
+export async function createProjectEvent(projectId, { startMs, endMs, effectType }, accessToken) {
+  const res = await fetch(`${API_BASE_URL}/projects/${projectId}/events`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ start_ms: startMs, end_ms: endMs, effect_type: effectType }),
+  })
+  return parseJsonOrThrow(res, 'POST /projects/{id}/events')
+}
+
+/**
+ * U11: 이벤트를 삭제한다.
+ */
+export async function deleteProjectEvent(projectId, eventId, accessToken) {
+  const res = await fetch(`${API_BASE_URL}/projects/${projectId}/events/${eventId}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  return parseJsonOrThrow(res, 'DELETE /projects/{id}/events/{eid}')
+}
+
+/**
  * U09(재추가)/U10: 매칭된 효과음 미리듣기.
  * <audio src>는 커스텀 헤더(Authorization)를 못 보내서, fetch로 인증된 요청을 보낸 뒤
  * Blob → object URL로 변환해서 재생한다.

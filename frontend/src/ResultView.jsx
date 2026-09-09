@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from './supabaseClient'
-import { fetchEventSfxAudioUrl, fetchProjectEvents } from './api'
+import {
+  createProjectEvent,
+  deleteProjectEvent,
+  fetchEventSfxAudioUrl,
+  fetchProjectEvents,
+  updateProjectEvent,
+} from './api'
 import CorrectionPanel from './CorrectionPanel'
 
 const VIDEOS_BUCKET = import.meta.env.VITE_SUPABASE_VIDEOS_BUCKET
@@ -23,6 +29,10 @@ function videoPathToStoragePath(videoPath) {
  * 오디오 미리듣기: matched_sfx_path가 아직 Storage가 아니라 로컬 파일 경로라(U06 이슈),
  * 백엔드의 간이 서빙 엔드포인트(GET /events/{id}/sfx-audio)로 받아 재생한다.
  * <audio src>는 Authorization 헤더를 못 보내므로, fetch로 인증된 요청 → Blob → object URL로 변환.
+ *
+ * U11: U10에서 화면(mock)에만 반영되던 보정(타입 변경/효과음 교체/삭제/추가)이 이제
+ * 실제로 서버에 저장된다 (PATCH/POST/DELETE /projects/{id}/events...). 각 조작은 API 호출 →
+ * 성공 시 서버가 돌려준 최신 행으로 로컬 state를 갱신하는 방식이라, 실패하면 화면이 바뀌지 않는다.
  */
 export default function ResultView({ project, session }) {
   const [events, setEvents] = useState([])
@@ -30,6 +40,7 @@ export default function ResultView({ project, session }) {
   const [duration, setDuration] = useState(0)
   const [selectedEventId, setSelectedEventId] = useState(null)
   const [previewLoading, setPreviewLoading] = useState(false)
+  const [savingAction, setSavingAction] = useState(false) // U11: 보정 저장 API 호출 중
   const [newStart, setNewStart] = useState('')
   const [newEnd, setNewEnd] = useState('')
   const [error, setError] = useState(null)
@@ -80,32 +91,62 @@ export default function ResultView({ project, session }) {
     }
   }
 
-  // --- U10: 보정 UI (mock — 화면에만 반영, 서버 저장은 U11에서) ---
+  // --- U11: 보정 저장 API 연결 (U10에서는 여기가 전부 mock/로컬 state였음) ---
 
-  function handleChangeType(newType) {
+  async function handleChangeType(newType) {
     if (!selectedEventId || !newType.trim()) return
-    setEvents((prev) =>
-      prev.map((e) => (e.id === selectedEventId ? { ...e, effect_type: newType.trim() } : e)),
-    )
+    setSavingAction(true)
+    setError(null)
+    try {
+      const updated = await updateProjectEvent(
+        project.id,
+        selectedEventId,
+        { effect_type: newType.trim() },
+        session.access_token,
+      )
+      setEvents((prev) => prev.map((e) => (e.id === selectedEventId ? updated : e)))
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setSavingAction(false)
+    }
   }
 
-  function handleReplaceSfx(filename) {
+  async function handleReplaceSfx(filename) {
     if (!selectedEventId) return
-    const trimmed = filename.trim()
-    setEvents((prev) =>
-      prev.map((e) =>
-        e.id === selectedEventId ? { ...e, matched_sfx_path: trimmed ? `eff sample/${trimmed}` : null } : e,
-      ),
-    )
+    setSavingAction(true)
+    setError(null)
+    try {
+      const updated = await updateProjectEvent(
+        project.id,
+        selectedEventId,
+        { sfx_filename: filename.trim() }, // 빈 문자열이면 서버에서 매칭 해제로 처리
+        session.access_token,
+      )
+      setEvents((prev) => prev.map((e) => (e.id === selectedEventId ? updated : e)))
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setSavingAction(false)
+    }
   }
 
-  function handleDeleteEvent() {
+  async function handleDeleteEvent() {
     if (!selectedEventId) return
-    setEvents((prev) => prev.filter((e) => e.id !== selectedEventId))
-    setSelectedEventId(null)
+    setSavingAction(true)
+    setError(null)
+    try {
+      await deleteProjectEvent(project.id, selectedEventId, session.access_token)
+      setEvents((prev) => prev.filter((e) => e.id !== selectedEventId))
+      setSelectedEventId(null)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setSavingAction(false)
+    }
   }
 
-  function handleAddEvent(e) {
+  async function handleAddEvent(e) {
     e.preventDefault()
     const startSec = parseFloat(newStart)
     const endSec = parseFloat(newEnd)
@@ -114,23 +155,27 @@ export default function ResultView({ project, session }) {
       return
     }
 
-    const newEvent = {
-      id: `local-${crypto.randomUUID()}`, // 서버에 없는 임시 id (U11에서 저장 시 교체됨)
-      project_id: project.id,
-      start_ms: Math.round(startSec * 1000),
-      end_ms: Math.round(endSec * 1000),
-      effect_type: 'unknown',
-      match_score: null,
-      matched_sfx_path: null,
-      representative_frame_path: null,
-      created_at: new Date().toISOString(),
-    }
-
-    setEvents((prev) => [...prev, newEvent].sort((a, b) => a.start_ms - b.start_ms))
-    setSelectedEventId(newEvent.id)
-    setNewStart('')
-    setNewEnd('')
+    setSavingAction(true)
     setError(null)
+    try {
+      const created = await createProjectEvent(
+        project.id,
+        {
+          startMs: Math.round(startSec * 1000),
+          endMs: Math.round(endSec * 1000),
+          effectType: 'unknown',
+        },
+        session.access_token,
+      )
+      setEvents((prev) => [...prev, created].sort((a, b) => a.start_ms - b.start_ms))
+      setSelectedEventId(created.id)
+      setNewStart('')
+      setNewEnd('')
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setSavingAction(false)
+    }
   }
 
   async function handlePreview() {
@@ -139,8 +184,9 @@ export default function ResultView({ project, session }) {
     setPreviewLoading(true)
     setError(null)
     try {
-      const filename = selectedEvent.matched_sfx_path.split('/').pop()
-      const url = await fetchEventSfxAudioUrl(selectedEvent.id, session.access_token, filename)
+      // U11부터: matched_sfx_path가 실제로 서버(DB)에 저장된 값이므로, filename 파라미터
+      // 없이 호출해도 최신 교체 결과가 그대로 재생된다 (U10 임시방편은 더 이상 필요 없음).
+      const url = await fetchEventSfxAudioUrl(selectedEvent.id, session.access_token)
       if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current)
       previewUrlRef.current = url
       if (audioRef.current) {
@@ -232,6 +278,7 @@ export default function ResultView({ project, session }) {
           onDelete={handleDeleteEvent}
           onPreview={handlePreview}
           previewLoading={previewLoading}
+          saving={savingAction}
         />
       )}
 
@@ -261,7 +308,9 @@ export default function ResultView({ project, session }) {
             style={{ width: 90, padding: '0.4rem', display: 'block' }}
           />
         </label>
-        <button type="submit">이벤트 추가</button>
+        <button type="submit" disabled={savingAction}>
+          이벤트 추가
+        </button>
       </form>
 
       <button type="button" onClick={handleDownloadCsv} style={{ marginTop: '1rem' }}>

@@ -65,3 +65,37 @@ async def fetch_rows(*, table: str, params: Dict[str, Any], user_token: str) -> 
         raise RuntimeError(f"{table} 조회 실패 ({resp.status_code}): {resp.text}")
 
     return resp.json()
+
+
+async def update_rows(
+    *, table: str, params: Dict[str, Any], data: dict, user_token: str
+) -> List[dict]:
+    """PostgREST PATCH 요청 (해당 사용자 권한으로). RLS로 본인 소유가 아닌 행은 조용히
+    0건 갱신되므로(에러가 아님), 반환된 리스트가 비어 있으면 호출부에서 404로 처리해야 한다."""
+    url = f"{SUPABASE_URL}/rest/v1/{table}"
+    headers = _headers(user_token, content_type="application/json")
+    headers["Prefer"] = "return=representation"
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.patch(url, params=params, json=data, headers=headers)
+
+    if resp.status_code >= 400:
+        raise RuntimeError(f"{table} 수정 실패 ({resp.status_code}): {resp.text}")
+
+    return resp.json()
+
+
+async def delete_rows(*, table: str, params: Dict[str, Any], user_token: str) -> List[dict]:
+    """PostgREST DELETE 요청 (해당 사용자 권한으로). 반환 리스트가 비어 있으면 삭제된 행이
+    없다는 뜻 (존재하지 않거나 본인 소유가 아님 — RLS가 조용히 걸러냄)."""
+    url = f"{SUPABASE_URL}/rest/v1/{table}"
+    headers = _headers(user_token, content_type="application/json")
+    headers["Prefer"] = "return=representation"
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.delete(url, params=params, headers=headers)
+
+    if resp.status_code >= 400:
+        raise RuntimeError(f"{table} 삭제 실패 ({resp.status_code}): {resp.text}")
+
+    return resp.json()
