@@ -1,0 +1,26 @@
+# U12: Render.com Blueprint — 백엔드 API(FastAPI)만 배포한다.
+# 워커(worker.py)는 참고 이미지/효과음 라이브러리가 로컬 파일 기반이라(U09~U11 미해결 이슈),
+# 이 Blueprint에는 포함하지 않고 로컬에서 계속 실행한다 (handoff/U12_summary.md 참고).
+#
+# 사용법: Render 대시보드 → New + → Blueprint → 이 GitHub 저장소 선택 → 이 파일 자동 인식.
+# envVars에 sync: false로 표시된 값은 Blueprint 적용 시 대시보드에서 직접 입력해야 한다.
+
+services:
+  - type: web
+    name: autosfx-backend
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_JWT_AUD
+        value: authenticated
+      - key: SUPABASE_VIDEOS_BUCKET
+        value: video
+      - key: CORS_ALLOW_ORIGINS
+        sync: false # Vercel 배포 URL이 정해진 뒤 채우기 (예: https://autosfx.vercel.app)
